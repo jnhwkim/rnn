@@ -12,16 +12,18 @@
 -- In this case, please do not dropout on input as BGRUs handle the input with 
 -- its own dropouts. First, try 0.25 for p as Gal (2016) suggested, presumably, 
 -- because of summations of two parts in GRUs connections. 
+--
+-- For p == true, it becomes Batch Normalized GRUs [Cooijmans et al., 2016].
 ------------------------------------------------------------------------
 local GRU, parent = torch.class('nn.GRU', 'nn.AbstractRecurrent')
 
-function GRU:__init(inputSize, outputSize, rho, p)
+function GRU:__init(inputSize, outputSize, rho, p, mono)
    parent.__init(self, rho or 9999)
    self.p = p or 0
-   if p and p ~= 0 then
+   if p~=true and p and p ~= 0 then
       assert(nn.Dropout(p,false,false,true).lazy, 'only work with Lazy Dropout!')
    end
-   self.mono = p ~= 0
+   self.mono = mono or p ~= 0
    self.inputSize = inputSize
    self.outputSize = outputSize   
    -- build the model
@@ -41,9 +43,36 @@ end
 function GRU:buildModel()
    -- input : {input, prevOutput}
    -- output : {output}
+
+   local function notSharedParams(obj)
+      obj.dpnn_parameters = {}
+      obj.dpnn_gradParameters = {}
+   end
    
    -- Calculate all four gates in one go : input, hidden, forget, output
-   if self.p ~= 0 then
+   if self.p == true then  -- Recurrent Batch Normalization
+      self.i2g = nn.Sequential()
+                     :add(nn.ConcatTable()
+                        :add(nn.Linear(self.inputSize, self.outputSize))
+                        :add(nn.Linear(self.inputSize, self.outputSize)))
+                     :add(nn.ParallelTable()
+                        :add(nn.BatchNormalization(self.outputSize))
+                        :add(nn.BatchNormalization(self.outputSize)))
+                     :add(nn.JoinTable(2))
+      self.o2g = nn.Sequential()
+                     :add(nn.ConcatTable()
+                        :add(nn.LinearNoBias(self.outputSize, self.outputSize))
+                        :add(nn.LinearNoBias(self.outputSize, self.outputSize)))
+                     :add(nn.ParallelTable()
+                        :add(nn.BatchNormalization(self.outputSize))
+                        :add(nn.BatchNormalization(self.outputSize)))
+                     :add(nn.JoinTable(2))
+      -- using separate statistics for each timestep (Cooijmans et al., 2016)
+      notSharedParams(self.i2g:get(2):get(1))
+      notSharedParams(self.i2g:get(2):get(2))
+      notSharedParams(self.o2g:get(2):get(1))
+      notSharedParams(self.o2g:get(2):get(2))
+   elseif self.p > 0 and self.p <= 1 then  -- Bayesian RNN
       self.i2g = nn.Sequential()
                      :add(nn.ConcatTable()
                         :add(nn.Dropout(self.p,false,false,true,self.mono))
@@ -95,12 +124,18 @@ function GRU:buildModel()
    t1:add(nn.SelectTable(1))
    local t2 = nn.Sequential()
    t2:add(nn.NarrowTable(2,2)):add(nn.CMulTable())
-   if self.p ~= 0 then
+   if self.p ~= true and self.p > 0 and self.p <= 1 then
       t1:add(nn.Dropout(self.p,false,false,true,self.mono))
       t2:add(nn.Dropout(self.p,false,false,true,self.mono))
    end
    t1:add(nn.Linear(self.inputSize, self.outputSize))
    t2:add(nn.LinearNoBias(self.outputSize, self.outputSize))
+   if self.p == true then
+      t1:add(nn.BatchNormalization(self.outputSize))
+      t2:add(nn.BatchNormalization(self.outputSize))
+      notSharedParams(t1:get(3))
+      notSharedParams(t2:get(4))
+   end
 
    concat:add(t1):add(t2)
    hidden:add(concat):add(nn.CAddTable()):add(nn.Tanh())
@@ -207,7 +242,13 @@ function GRU:_accGradParameters(input, gradOutput, scale)
 end
 
 function GRU:__tostring__()
-   return string.format('%s(%d -> %d, %.2f)', torch.type(self), self.inputSize, self.outputSize, self.p)
+   if self.p == true then
+      return string.format('%s(%d -> %d, BN)', torch.type(self), self.inputSize, self.outputSize)
+   elseif self.p > 0 and self.p < 1 then
+      return string.format('%s(%d -> %d, %.2f)', torch.type(self), self.inputSize, self.outputSize, self.p)
+   else
+      return string.format('%s(%d -> %d)', torch.type(self), self.inputSize, self.outputSize)
+   end
 end
 
 -- migrate GRUs params to BGRUs params

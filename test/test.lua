@@ -4286,6 +4286,51 @@ function rnntest.issue170()
    mytester:assertTensorEq(loss:select(2,1), loss:select(2,2), 0.0000001, "loss check")
 end
 
+function rnntest.GRU_bn()
+   local batch_size = 3
+   local input_size = 5
+   local hidden_size = 5
+   local input_length = 4
+   local numBN = 6
+   
+   local x = torch.rand(batch_size, input_length, input_size)
+   local rnn = nn.GRU(input_size,hidden_size,nil,true)
+   local model = nn.Sequential()
+      :add(nn.SplitTable(2))
+      :add(nn.Sequencer(rnn))
+   local output = model:forward(x)
+
+   local pointers = {}
+   local function getModule(obj,seq)
+      for i=1,#seq do obj = obj:get(seq[i]) end return obj
+   end
+   local bn_traces = {
+      {1,2,1,1,2,1},
+      {1,2,1,1,2,2},
+      {1,2,1,2,2,1},
+      {1,2,1,2,2,2},
+      {5,1,1,1,1,1,1,3},
+      {5,1,1,1,1,1,2,4}
+   }
+   for i=1,input_length do
+      local stepModule = rnn:getStepModule(i)
+      table.insert(pointers, {})
+      for j=1,#bn_traces do
+         local bn = getModule(stepModule, bn_traces[j])
+         mytester:assert(torch.typename(bn)=='nn.BatchNormalization')
+         table.insert(pointers[i], {bn.weight, bn.bias, bn.gradWeight, bn.gradBias, bn.running_mean, bn.running_var})
+      end
+   end
+   -- make sure not sharing parameters of Batch Normalization at every steps
+   for i=1,input_length-1 do
+      for j=1,#bn_traces do
+         for k=1,6 do
+            mytester:assert(not pointers[i][j][k]:isSetTo(pointers[i+1][j][k]))
+         end
+      end
+   end
+end
+
 function rnntest.encoderdecoder()
    torch.manualSeed(123)
    
