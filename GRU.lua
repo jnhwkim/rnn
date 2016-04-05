@@ -23,7 +23,7 @@ function GRU:__init(inputSize, outputSize, rho, p, mono)
    if p~=true and p and p ~= 0 then
       assert(nn.Dropout(p,false,false,true).lazy, 'only work with Lazy Dropout!')
    end
-   self.mono = mono or p ~= 0
+   self.mono = mono or false
    self.inputSize = inputSize
    self.outputSize = outputSize   
    -- build the model
