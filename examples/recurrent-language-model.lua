@@ -35,6 +35,7 @@ cmd:option('--gru', false, 'use Gated Recurrent Units (nn.GRU instead of nn.Recu
 cmd:option('--seqlen', 5, 'sequence length : back-propagate through time (BPTT) for this many time-steps')
 cmd:option('--hiddensize', '{200}', 'number of hidden units used at output of each recurrent layer. When more than one is specified, RNN/LSTMs/GRUs are stacked')
 cmd:option('--dropout', 0, 'apply dropout with this probability after each rnn layer. dropout <= 0 disables it.')
+cmd:option('--bn', false, 'batch normalized rnn (now only for GRUs)')
 -- data
 cmd:option('--batchsize', 32, 'number of examples per batch')
 cmd:option('--trainsize', -1, 'number of train examples seen between each epoch')
@@ -50,6 +51,7 @@ if not opt.silent then
    table.print(opt)
 end
 opt.id = opt.id == '' and ('ptb' .. ':' .. dl.uniqueid()) or opt.id
+assert(opt.bn and opt.gru, 'batch normalized rnn option only supports for GRUs')
 
 --[[ data set ]]--
 
@@ -78,8 +80,10 @@ local inputsize = opt.hiddensize[1]
 for i,hiddensize in ipairs(opt.hiddensize) do 
    local rnn
    
-   if opt.gru then -- Gated Recurrent Units
+   if opt.gru and not opt.bn then -- Gated Recurrent Units
       rnn = nn.GRU(inputsize, hiddensize, nil, opt.dropout/2)
+   elseif opt.gru and opt.bn then
+      rnn = nn.GRU(inputsize, hiddensize, nil, true)
    elseif opt.lstm then -- Long Short Term Memory units
       require 'nngraph'
       nn.FastLSTM.usenngraph = true -- faster
