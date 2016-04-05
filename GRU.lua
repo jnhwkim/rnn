@@ -43,35 +43,26 @@ end
 function GRU:buildModel()
    -- input : {input, prevOutput}
    -- output : {output}
-
-   local function notSharedParams(obj)
-      obj.dpnn_parameters = {}
-      obj.dpnn_gradParameters = {}
+   
+   local function notSharedStats(obj)
+      obj.dpnn_parameters = {'weight','bias'}
+      obj.dpnn_gradParameters = {'gradWeight','gradBias'}
    end
    
    -- Calculate all four gates in one go : input, hidden, forget, output
    if self.p == true then  -- Recurrent Batch Normalization
       self.i2g = nn.Sequential()
-                     :add(nn.ConcatTable()
-                        :add(nn.Linear(self.inputSize, self.outputSize))
-                        :add(nn.Linear(self.inputSize, self.outputSize)))
-                     :add(nn.ParallelTable()
-                        :add(nn.BatchNormalization(self.outputSize))
-                        :add(nn.BatchNormalization(self.outputSize)))
-                     :add(nn.JoinTable(2))
+                     :add(nn.LinearNoBias(self.inputSize, self.outputSize*2))
+                     :add(nn.BatchNormalization(self.outputSize*2))
       self.o2g = nn.Sequential()
-                     :add(nn.ConcatTable()
-                        :add(nn.LinearNoBias(self.outputSize, self.outputSize))
-                        :add(nn.LinearNoBias(self.outputSize, self.outputSize)))
-                     :add(nn.ParallelTable()
-                        :add(nn.BatchNormalization(self.outputSize))
-                        :add(nn.BatchNormalization(self.outputSize)))
-                     :add(nn.JoinTable(2))
+                     :add(nn.LinearNoBias(self.outputSize, self.outputSize*2))
+                     :add(nn.BatchNormalization(self.outputSize*2,1e-5,.1,false))
+                     :add(nn.CMul(self.outputSize*2))
       -- using separate statistics for each timestep (Cooijmans et al., 2016)
-      notSharedParams(self.i2g:get(2):get(1))
-      notSharedParams(self.i2g:get(2):get(2))
-      notSharedParams(self.o2g:get(2):get(1))
-      notSharedParams(self.o2g:get(2):get(2))
+      notSharedStats(self.i2g:get(2))
+      notSharedStats(self.o2g:get(2))
+      self.i2g:get(2).weight:fill(.1)
+      self.o2g:get(3).weight:fill(.1)
    elseif self.p > 0 and self.p <= 1 then  -- Bayesian RNN
       self.i2g = nn.Sequential()
                      :add(nn.ConcatTable()
@@ -131,10 +122,13 @@ function GRU:buildModel()
    t1:add(nn.Linear(self.inputSize, self.outputSize))
    t2:add(nn.LinearNoBias(self.outputSize, self.outputSize))
    if self.p == true then
-      t1:add(nn.BatchNormalization(self.outputSize))
+      t1:add(nn.BatchNormalization(self.outputSize,1e-5,.1,false))
       t2:add(nn.BatchNormalization(self.outputSize))
-      notSharedParams(t1:get(3))
-      notSharedParams(t2:get(4))
+      t1:add(nn.CMul(self.outputSize))
+      notSharedStats(t1:get(3))
+      notSharedStats(t2:get(4))
+      t1:get(4).weight:fill(.1)
+      t2:get(4).weight:fill(.1)
    end
 
    concat:add(t1):add(t2)

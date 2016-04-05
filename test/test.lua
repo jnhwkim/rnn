@@ -4305,10 +4305,8 @@ function rnntest.GRU_bn()
       for i=1,#seq do obj = obj:get(seq[i]) end return obj
    end
    local bn_traces = {
-      {1,2,1,1,2,1},
-      {1,2,1,1,2,2},
-      {1,2,1,2,2,1},
-      {1,2,1,2,2,2},
+      {1,2,1,1,2},
+      {1,2,1,2,2},
       {5,1,1,1,1,1,1,3},
       {5,1,1,1,1,1,2,4}
    }
