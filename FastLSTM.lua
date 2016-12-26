@@ -25,13 +25,8 @@ function FastLSTM:__init(inputSize, outputSize, rho, eps, momentum, affine, p, m
    self.eps = eps or 0.1
    self.momentum = momentum or 0.1 --gamma
    self.affine = affine == nil and true or affine
-   self.p = p or 0
-   if p and p ~= 0 then
-      assert(nn.Dropout(p,false,false,true).lazy, 'only work with Lazy Dropout!')
-   end
-   self.mono = mono or false
 
-   parent.__init(self, inputSize, outputSize, rho) 
+   parent.__init(self, inputSize, outputSize, rho, nil, p, mono)
 end
 
 function FastLSTM:buildModel()
